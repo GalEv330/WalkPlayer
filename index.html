@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0f16" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="WalkPlayer" />
+
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+  <link rel="stylesheet" href="/styles.css" />
+  <title>WalkPlayer</title>
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">🎧</div>
+      <div>
+        <div class="title">WalkPlayer</div>
+        <div class="subtitle">Batch-scheduled playback for iOS lock screen</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card nowplaying" aria-live="polite">
+      <div class="np-left">
+        <div class="np-title" id="npTitle">Not playing</div>
+        <div class="np-artist" id="npArtist">Tap Play to unlock audio</div>
+      </div>
+      <div class="np-right">
+        <div class="np-meta" id="npMeta">—</div>
+      </div>
+
+      <div class="progress" role="progressbar" aria-label="Playback progress">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div class="time-row">
+        <span id="timeCur">0:00</span>
+        <span id="timeTot">0:00</span>
+      </div>
+    </section>
+
+    <section class="card controls">
+      <button class="btn" id="btnPrev" aria-label="Previous track">
+        <span aria-hidden="true">⏮</span><span class="btn-text">Prev</span>
+      </button>
+
+      <button class="btn primary" id="btnPlay" aria-label="Play">
+        <span aria-hidden="true" id="playIcon">▶️</span><span class="btn-text" id="playText">Play</span>
+      </button>
+
+      <button class="btn" id="btnNext" aria-label="Next track">
+        <span aria-hidden="true">⏭</span><span class="btn-text">Next</span>
+      </button>
+    </section>
+
+    <section class="card settings">
+      <div class="row">
+        <div>
+          <div class="label">Batch size (scheduled ahead)</div>
+          <div class="hint">
+            Bigger batches play longer with screen off, but use more memory (decoded audio is big).
+          </div>
+        </div>
+
+        <select id="batchSize" class="select" aria-label="Batch size">
+          <option value="5">5 songs</option>
+          <option value="10">10 songs</option>
+          <option value="all">All songs (⚠️ may be heavy)</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <div>
+          <div class="label">Status</div>
+          <div class="hint" id="statusLine">Idle</div>
+        </div>
+        <button class="btn subtle" id="btnReseed" aria-label="Rebuild scheduled batch">
+          Rebuild batch
+        </button>
+      </div>
+    </section>
+
+    <section class="card playlist">
+      <div class="label">Playlist</div>
+      <div class="hint">Tap a track to jump (will rebuild the scheduled batch).</div>
+      <ul id="list" class="list" aria-label="Song list"></ul>
+    </section>
+
+    <footer class="foot">
+      Tip: Install to Home Screen for a more app-like experience on iOS.
+    </footer>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

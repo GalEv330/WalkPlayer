@@ -1,0 +1,241 @@
+:root{
+  --bg:#0b0f16;
+  --panel:#111827;
+  --panel2:#0f172a;
+  --text:#e5e7eb;
+  --muted:#94a3b8;
+  --border:#24324a;
+  --accent:#60a5fa;
+  --accent2:#22c55e;
+
+  --radius:16px;
+  --shadow: 0 8px 30px rgba(0,0,0,.35);
+}
+
+@media (prefers-color-scheme: light){
+  :root{
+    --bg:#f6f7fb;
+    --panel:#ffffff;
+    --panel2:#f2f5ff;
+    --text:#0b1220;
+    --muted:#4b5563;
+    --border:#d7deee;
+    --accent:#2563eb;
+    --accent2:#16a34a;
+    --shadow: 0 10px 30px rgba(2,6,23,.12);
+  }
+}
+
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.topbar{
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 12px 14px calc(12px + env(safe-area-inset-top));
+  background: linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,0));
+  backdrop-filter: blur(10px);
+}
+
+.brand{
+  display:flex;
+  gap:12px;
+  align-items:center;
+}
+
+.logo{
+  width:40px;height:40px;
+  border-radius: 12px;
+  background: var(--panel);
+  display:grid;place-items:center;
+  box-shadow: var(--shadow);
+}
+
+.title{ font-weight: 700; font-size: 16px; }
+.subtitle{ color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+.wrap{
+  padding: 12px 14px calc(18px + env(safe-area-inset-bottom));
+  max-width: 520px;
+  margin: 0 auto;
+  display:flex;
+  flex-direction:column;
+  gap: 12px;
+}
+
+.card{
+  background: linear-gradient(180deg, var(--panel), var(--panel2));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+
+.nowplaying{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.np-title{
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.np-artist, .np-meta{
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nowplaying .np-left{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+
+.progress{
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(148,163,184,.18);
+  overflow:hidden;
+  border: 1px solid rgba(148,163,184,.15);
+}
+
+.progress-bar{
+  height:100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), rgba(96,165,250,.65));
+  border-radius: 999px;
+}
+
+.time-row{
+  display:flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.controls{
+  display:flex;
+  gap:10px;
+  justify-content: space-between;
+}
+
+.btn{
+  flex:1;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 12px 10px;
+  display:flex;
+  gap:8px;
+  align-items:center;
+  justify-content:center;
+  font-weight: 650;
+  cursor:pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn:active{ transform: translateY(1px); }
+
+.btn.primary{
+  background: linear-gradient(180deg, rgba(96,165,250,.25), rgba(96,165,250,.10));
+  border-color: rgba(96,165,250,.35);
+}
+
+.btn.subtle{
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-weight: 650;
+}
+
+.btn-text{ font-size: 13px; }
+
+.settings .row{
+  display:flex;
+  justify-content: space-between;
+  align-items:center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.settings .row:first-child{ margin-top: 0; }
+
+.label{ font-weight: 750; }
+.hint{ color: var(--muted); font-size: 12px; margin-top: 4px; max-width: 28ch; }
+
+.select{
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 10px;
+  font-weight: 650;
+}
+
+.playlist .list{
+  list-style:none;
+  padding: 0;
+  margin: 10px 0 0 0;
+  display:flex;
+  flex-direction:column;
+  gap: 8px;
+}
+
+.item{
+  display:flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(148,163,184,.18);
+  background: rgba(255,255,255,.03);
+  cursor:pointer;
+}
+
+.item .l{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width: 0;
+}
+.item .t{
+  font-weight: 700;
+  white-space: nowrap;
+  overflow:hidden;
+  text-overflow: ellipsis;
+}
+.item .a{
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow:hidden;
+  text-overflow: ellipsis;
+}
+.item .r{
+  color: var(--muted);
+  font-size: 12px;
+  flex: 0 0 auto;
+  align-self:center;
+}
+
+.item.active{
+  border-color: rgba(96,165,250,.5);
+  background: rgba(96,165,250,.10);
+}
+
+.foot{
+  color: var(--muted);
+  text-align:center;
+  font-size: 12px;
+  padding: 4px 0 0;
+}
