@@ -140,6 +140,7 @@ let navStack = ['screenHome'];
 
 function navigateTo(id) {
   const curr = navStack[navStack.length - 1];
+  if (curr === id) return;
   document.getElementById(curr).className = 'screen screen-left';
   document.getElementById(id).className   = 'screen screen-active';
   navStack.push(id);
@@ -396,7 +397,12 @@ function buildList() {
 function markActive(index) {
   ui.list.querySelectorAll('.item').forEach(el => el.classList.remove('active'));
   const el = ui.list.querySelector(`.item[data-index="${index}"]`);
-  if (el) { el.classList.add('active'); el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+  if (el) el.classList.add('active');
+}
+
+function scrollToActive(index) {
+  const el = ui.list.querySelector(`.item[data-index="${index}"]`);
+  if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 // ── Progress UI ──
@@ -556,6 +562,7 @@ function startFromPlaylist(songs, startIdx, playlistName) {
   ui.playerPlaylistName.textContent = playlistName;
   ui.playerListLabel.textContent    = playlistName;
   buildList();
+  scrollToActive(startIdx);
   navigateTo('screenPlayer');
   player.rebuildBatchFrom(startIdx, { autostart: true })
     .then(() => render(true))
@@ -814,6 +821,7 @@ function tick() {
     lastRenderedTrackIndex = cur.index;
     player.updateNowPlayingMetadata(cur.index);
     markActive(cur.index);
+    scrollToActive(cur.index);
   }
   requestAnimationFrame(tick);
 }

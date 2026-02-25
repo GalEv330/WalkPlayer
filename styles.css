@@ -50,7 +50,7 @@ body {
 }
 
 .screen-active { transform: translateX(0); }
-.screen-left   { transform: translateX(-22%); }
+.screen-left   { transform: translateX(0); }
 .screen-right  { transform: translateX(100%); }
 
 /* ── Topbar (inside each screen) ── */
