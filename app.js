@@ -26,7 +26,7 @@ function parseSongMeta(filename) {
 
 async function scanSongsDir() {
   try {
-    const res = await fetch('/songs/');
+    const res = await fetch('songs/');
     if (!res.ok) return null;
     const html = await res.text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -36,7 +36,7 @@ async function scanSongsDir() {
       if (!href.toLowerCase().endsWith('.mp3')) continue;
       const filename = decodeURIComponent(href.split('/').pop());
       const { title, artist } = parseSongMeta(filename);
-      songs.push({ title, artist, file: `/songs/${href.split('/').pop()}` });
+      songs.push({ title, artist, file: `songs/${href.split('/').pop()}` });
     }
     return songs.length ? songs : null;
   } catch { return null; }
@@ -45,7 +45,7 @@ async function scanSongsDir() {
 function buildSongs(count) {
   return Array.from({ length: count }, (_, i) => ({
     title: `Track ${i + 1}`, artist: '—',
-    file: `/songs/${String(i + 1).padStart(2, '0')}.mp3`,
+    file: `songs/${String(i + 1).padStart(2, '0')}.mp3`,
   }));
 }
 

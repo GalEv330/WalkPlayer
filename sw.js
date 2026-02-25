@@ -1,15 +1,15 @@
 // Basic "app shell" service worker for PWA installability.
 // Note: Caching large audio files can be expensive; we cache only the UI assets by default.
 
-const CACHE_NAME = "walkplayer-v4";
+const CACHE_NAME = "walkplayer-v5";
 const APP_SHELL = [
-  "/",
-  "/index.html",
-  "/styles.css",
-  "/app.js",
-  "/manifest.json",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png"
+  "./",
+  "./index.html",
+  "./styles.css",
+  "./app.js",
+  "./manifest.json",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png"
 ];
 
 self.addEventListener("install", (event) => {
