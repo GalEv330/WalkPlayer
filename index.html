@@ -41,12 +41,21 @@
         </div>
       </div>
 
-      <div class="progress" role="progressbar" aria-label="Playback progress">
+      <div class="progress" id="progressTrack" role="slider" aria-label="Playback progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div class="progress-bar" id="progressBar"></div>
+        <div class="progress-thumb" id="progressThumb"></div>
       </div>
       <div class="time-row">
+        <button class="seek-btn" id="btnSeekBack" aria-label="5 seconds back">«5s</button>
         <span id="timeCur">0:00</span>
         <span id="timeTot">0:00</span>
+        <button class="seek-btn" id="btnSeekFwd" aria-label="5 seconds forward">5s»</button>
+      </div>
+      <div class="batch-progress">
+        <span class="batch-label">Batch</span>
+        <span id="batchPos">—</span>
+        <span class="batch-sep">/</span>
+        <span id="batchTot">—</span>
       </div>
 
       <div class="next-up" id="nextUp">

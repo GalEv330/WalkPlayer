@@ -1,7 +1,6 @@
 // WalkPlayer — Web Audio batch scheduling for iOS lock-screen continuity
 // Audio files are served from /songs on the same origin.
 
-// Gradient pairs for the album-art placeholder; cycles per track index.
 const TRACK_GRADIENTS = [
   ['#0f3460', '#533483'],
   ['#1a2e4a', '#0f3460'],
@@ -13,7 +12,6 @@ const TRACK_GRADIENTS = [
   ['#2c003e', '#a855f7'],
 ];
 
-// Parse "Artist - Title.mp3" filenames. Falls back to the bare name as title.
 function parseSongMeta(filename) {
   const name = filename.replace(/\.mp3$/i, "");
   const dash = name.indexOf(" - ");
@@ -23,8 +21,6 @@ function parseSongMeta(filename) {
   return { artist: "—", title: name };
 }
 
-// Fetch /songs/ directory listing (works with python3 -m http.server).
-// Returns an array of song objects, or null if the listing is unavailable.
 async function scanSongsDir() {
   try {
     const res = await fetch("/songs/");
@@ -35,7 +31,6 @@ async function scanSongsDir() {
     for (const a of doc.querySelectorAll("a[href]")) {
       const href = a.getAttribute("href");
       if (!href.toLowerCase().endsWith(".mp3")) continue;
-      // href is already URL-encoded by the server; use it directly as the path.
       const filename = decodeURIComponent(href.split("/").pop());
       const { title, artist } = parseSongMeta(filename);
       songs.push({ title, artist, file: `/songs/${href.split("/").pop()}` });
@@ -54,31 +49,36 @@ function buildSongs(count) {
   }));
 }
 
-let SONGS = buildSongs(1); // placeholder until scanSongsDir() resolves
+let SONGS = buildSongs(1);
 
 const $ = (id) => document.getElementById(id);
 
 const ui = {
-  npTitle:      $("npTitle"),
-  npArtist:     $("npArtist"),
-  npMeta:       $("npMeta"),
-  albumArt:     $("albumArt"),
-  nextUpTrack:  $("nextUpTrack"),
-  progressBar:  $("progressBar"),
-  timeCur:      $("timeCur"),
-  timeTot:      $("timeTot"),
-  statusLine:   $("statusLine"),
+  npTitle:       $("npTitle"),
+  npArtist:      $("npArtist"),
+  npMeta:        $("npMeta"),
+  albumArt:      $("albumArt"),
+  nextUpTrack:   $("nextUpTrack"),
+  progressTrack: $("progressTrack"),
+  progressBar:   $("progressBar"),
+  progressThumb: $("progressThumb"),
+  timeCur:       $("timeCur"),
+  timeTot:       $("timeTot"),
+  batchPos:      $("batchPos"),
+  batchTot:      $("batchTot"),
+  statusLine:    $("statusLine"),
 
-  btnPrev:      $("btnPrev"),
-  btnPlay:      $("btnPlay"),
-  btnNext:      $("btnNext"),
-  playIcon:     $("playIcon"),
-  playText:     $("playText"),
+  btnSeekBack:   $("btnSeekBack"),
+  btnSeekFwd:    $("btnSeekFwd"),
+  btnPrev:       $("btnPrev"),
+  btnPlay:       $("btnPlay"),
+  btnNext:       $("btnNext"),
+  playIcon:      $("playIcon"),
+  playText:      $("playText"),
 
-  playlistSize: $("playlistSize"),
-  batchCustom:  $("batchCustom"),
-
-  list:         $("list"),
+  playlistSize:  $("playlistSize"),
+  batchCustom:   $("batchCustom"),
+  list:          $("list"),
 };
 
 function fmtTime(sec) {
@@ -88,24 +88,23 @@ function fmtTime(sec) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function clamp01(x) {
-  return Math.min(1, Math.max(0, x));
-}
+function clamp01(x) { return Math.min(1, Math.max(0, x)); }
 
-// --- Audio Engine (Web Audio API) ---
+// --- Audio Engine ---
 class BatchScheduledPlayer {
   constructor(songs) {
     this.songs = songs;
     this.idx = 0;
-
     this.ctx = null;
     this.gain = null;
-
     this.isPlaying = false;
     this.isLoading = false;
-
     this.batchSize = 5;
-    this.scheduled = []; // [{ index, startTime, endTime, source, duration }]
+    this.scheduled = [];
+    // scheduled entry shape:
+    //   { index, source, startTime, endTime, duration, startOffset }
+    //   duration    = full track duration (for progress %)
+    //   startOffset = seconds into the track we actually started from (after a seek)
 
     this.bufferCache = new Map();
     this.cacheOrder = [];
@@ -177,9 +176,9 @@ class BatchScheduledPlayer {
     this.scheduled = [];
   }
 
+  // Rebuild the batch starting from track startIndex, beginning of track.
   async rebuildBatchFrom(startIndex, { autostart }) {
     await this.ensureContext();
-
     this.isLoading = true;
     setStatus("Loading + decoding batch…");
     this.stopAllScheduled();
@@ -201,10 +200,14 @@ class BatchScheduledPlayer {
       const source = this.ctx.createBufferSource();
       source.buffer = item.buffer;
       source.connect(this.gain);
-      const duration = item.buffer.duration;
       source.start(t);
-      this.scheduled.push({ index: item.index, source, startTime: t, endTime: t + duration, duration });
-      t += duration;
+      const dur = item.buffer.duration;
+      this.scheduled.push({
+        index: item.index, source,
+        startTime: t, endTime: t + dur,
+        duration: dur, startOffset: 0,
+      });
+      t += dur;
     }
 
     this.idx = startIndex;
@@ -222,6 +225,73 @@ class BatchScheduledPlayer {
 
     this.updateNowPlayingMetadata(startIndex);
     scheduleMetadataUpdates();
+  }
+
+  // Seek to a specific second within the current track, then re-schedule the rest.
+  async seekTo(positionSeconds) {
+    await this.ensureContext();
+    if (this.isLoading) return;
+
+    const cur = this.getCurrent();
+    const songIdx = cur ? cur.index : this.idx;
+    const buf = await this.loadDecodedBuffer(this.songs[songIdx].file);
+    const trackDur = buf.duration;
+    const offset = Math.max(0, Math.min(positionSeconds, trackDur - 0.05));
+
+    this.stopAllScheduled();
+
+    const startAt = this.ctx.currentTime + 0.05;
+    let t = startAt;
+
+    // Current track from offset
+    const src0 = this.ctx.createBufferSource();
+    src0.buffer = buf;
+    src0.connect(this.gain);
+    src0.start(startAt, offset);
+    const remaining = trackDur - offset;
+    this.scheduled.push({
+      index: songIdx, source: src0,
+      startTime: startAt, endTime: startAt + remaining,
+      duration: trackDur, startOffset: offset,
+    });
+    t += remaining;
+
+    // Remaining batch slots
+    const slots = Math.min(this.batchSize - 1, this.songs.length - 1);
+    for (let i = 1; i <= slots; i++) {
+      const nextIdx = (songIdx + i) % this.songs.length;
+      const nextBuf = await this.loadDecodedBuffer(this.songs[nextIdx].file);
+      const nextSrc = this.ctx.createBufferSource();
+      nextSrc.buffer = nextBuf;
+      nextSrc.connect(this.gain);
+      nextSrc.start(t);
+      this.scheduled.push({
+        index: nextIdx, source: nextSrc,
+        startTime: t, endTime: t + nextBuf.duration,
+        duration: nextBuf.duration, startOffset: 0,
+      });
+      t += nextBuf.duration;
+    }
+
+    this.idx = songIdx;
+    if (this.isPlaying && this.ctx.state === "suspended") {
+      await this.ctx.resume();
+    }
+    this.updateNowPlayingMetadata(songIdx);
+    scheduleMetadataUpdates();
+  }
+
+  // Seek relative to current position; clamps to track boundaries.
+  async seekRelative(deltaSeconds) {
+    const p = this.getProgress();
+    const newPos = p.pos + deltaSeconds;
+    if (newPos < 0) {
+      await this.seekTo(0);
+    } else if (newPos >= p.dur) {
+      await this.next();
+    } else {
+      await this.seekTo(newPos);
+    }
   }
 
   async loadDecodedBuffer(url) {
@@ -249,15 +319,37 @@ class BatchScheduledPlayer {
     return this.scheduled[this.scheduled.length - 1] ?? null;
   }
 
+  // Progress within the current track (accounts for startOffset after a seek).
   getProgress() {
     const cur = this.getCurrent();
     if (!cur) return { ratio: 0, pos: 0, dur: 0, index: this.idx };
-    const t = this.ctx.currentTime;
-    const pos = Math.max(0, t - cur.startTime);
+    const elapsed = Math.max(0, this.ctx.currentTime - cur.startTime);
+    const pos = (cur.startOffset || 0) + elapsed;
     const dur = cur.duration;
     return { ratio: dur > 0 ? clamp01(pos / dur) : 0, pos, dur, index: cur.index };
   }
 
+  // Position and total duration across the entire scheduled batch.
+  getBatchProgress() {
+    if (!this.ctx || !this.scheduled.length) return { pos: 0, dur: 0 };
+    const t = this.ctx.currentTime;
+    let totalDur = 0;
+    let curPos = 0;
+    for (const seg of this.scheduled) {
+      totalDur += seg.duration;
+      if (t >= seg.endTime) {
+        // Fully past this segment
+        curPos += seg.duration;
+      } else if (t >= seg.startTime) {
+        // Currently in this segment
+        curPos += (seg.startOffset || 0) + (t - seg.startTime);
+      }
+      // upcoming segment: contributes nothing to curPos
+    }
+    return { pos: curPos, dur: totalDur };
+  }
+
+  // --- Media Session ---
   setupMediaSession() {
     if (!("mediaSession" in navigator)) return;
     try {
@@ -292,7 +384,7 @@ class BatchScheduledPlayer {
   }
 }
 
-// --- Scheduled metadata timers for lock-screen track transitions ---
+// --- Metadata timers ---
 const metadataTimers = [];
 
 function scheduleMetadataUpdates() {
@@ -310,12 +402,10 @@ function scheduleMetadataUpdates() {
   }
 }
 
-// --- UI wiring ---
+// --- UI ---
 const player = new BatchScheduledPlayer(SONGS);
 
-function setStatus(msg) {
-  ui.statusLine.textContent = msg;
-}
+function setStatus(msg) { ui.statusLine.textContent = msg; }
 
 function buildList() {
   ui.list.innerHTML = "";
@@ -341,11 +431,8 @@ function buildList() {
 
 function escapeHtml(str) {
   return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 
 function markActive(index) {
@@ -355,6 +442,16 @@ function markActive(index) {
     active.classList.add("active");
     active.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
+}
+
+// Set the visual progress state (ratio 0-1) without touching the player.
+function setProgressUI(ratio, posSec, durSec) {
+  const pct = `${Math.round(ratio * 100)}%`;
+  ui.progressBar.style.width = pct;
+  ui.progressThumb.style.left = pct;
+  ui.timeCur.textContent = fmtTime(posSec);
+  ui.timeTot.textContent = fmtTime(durSec);
+  ui.progressTrack.setAttribute("aria-valuenow", Math.round(ratio * 100));
 }
 
 function render(forceMetadata = false) {
@@ -370,19 +467,23 @@ function render(forceMetadata = false) {
   const [c1, c2] = TRACK_GRADIENTS[idx % TRACK_GRADIENTS.length];
   ui.albumArt.style.background = `linear-gradient(135deg, ${c1}, ${c2})`;
 
-  const nextIdx  = (idx + 1) % SONGS.length;
+  const nextIdx = (idx + 1) % SONGS.length;
   const nextSong = SONGS[nextIdx];
-  if (nextSong && SONGS.length > 1) {
-    ui.nextUpTrack.textContent = nextSong.artist !== "—"
-      ? `${nextSong.title} · ${nextSong.artist}`
-      : nextSong.title;
-  } else {
-    ui.nextUpTrack.textContent = "—";
-  }
+  ui.nextUpTrack.textContent = (nextSong && SONGS.length > 1)
+    ? (nextSong.artist !== "—" ? `${nextSong.title} · ${nextSong.artist}` : nextSong.title)
+    : "—";
 
-  ui.progressBar.style.width = `${Math.round(p.ratio * 100)}%`;
-  ui.timeCur.textContent = fmtTime(p.pos);
-  ui.timeTot.textContent = fmtTime(p.dur);
+  if (!isScrubbing) setProgressUI(p.ratio, p.pos, p.dur);
+
+  // Batch progress
+  const bp = player.getBatchProgress();
+  if (bp.dur > 0) {
+    ui.batchPos.textContent = fmtTime(bp.pos);
+    ui.batchTot.textContent = fmtTime(bp.dur);
+  } else {
+    ui.batchPos.textContent = "—";
+    ui.batchTot.textContent = "—";
+  }
 
   const playing = player.isPlaying && player.ctx?.state === "running";
   ui.playIcon.textContent = playing ? "⏸" : "▶️";
@@ -393,15 +494,94 @@ function render(forceMetadata = false) {
   if (player.ctx && player.isPlaying && p.dur > 0) {
     try {
       navigator.mediaSession?.setPositionState({
-        duration: p.dur,
-        playbackRate: 1,
-        position: Math.min(p.pos, p.dur),
+        duration: p.dur, playbackRate: 1, position: Math.min(p.pos, p.dur),
       });
     } catch {}
   }
 
   if (forceMetadata && song) player.updateNowPlayingMetadata(idx);
 }
+
+// --- Progress bar scrubbing ---
+let isScrubbing = false;
+
+function ratioFromPointer(ev) {
+  const rect = ui.progressTrack.getBoundingClientRect();
+  return clamp01((ev.clientX - rect.left) / rect.width);
+}
+
+ui.progressTrack.addEventListener("pointerdown", (ev) => {
+  if (!player.ctx && !player.scheduled.length) return;
+  ev.preventDefault();
+  ui.progressTrack.setPointerCapture(ev.pointerId);
+  isScrubbing = true;
+  ui.progressTrack.classList.add("scrubbing");
+
+  const dur = player.getProgress().dur;
+  const ratio = ratioFromPointer(ev);
+  setProgressUI(ratio, ratio * dur, dur);
+});
+
+ui.progressTrack.addEventListener("pointermove", (ev) => {
+  if (!isScrubbing) return;
+  const dur = player.getProgress().dur;
+  const ratio = ratioFromPointer(ev);
+  setProgressUI(ratio, ratio * dur, dur);
+});
+
+ui.progressTrack.addEventListener("pointerup", async (ev) => {
+  if (!isScrubbing) return;
+  isScrubbing = false;
+  ui.progressTrack.classList.remove("scrubbing");
+
+  const dur = player.getProgress().dur;
+  if (dur > 0) {
+    const ratio = ratioFromPointer(ev);
+    try {
+      await player.seekTo(ratio * dur);
+      render(true);
+    } catch (e) { setStatus(`Error: ${e.message}`); }
+  }
+});
+
+ui.progressTrack.addEventListener("pointercancel", () => {
+  isScrubbing = false;
+  ui.progressTrack.classList.remove("scrubbing");
+});
+
+// --- Seek ±5s ---
+ui.btnSeekBack.addEventListener("click", async () => {
+  try { await player.seekRelative(-5); render(true); }
+  catch (e) { setStatus(`Error: ${e.message}`); }
+});
+
+ui.btnSeekFwd.addEventListener("click", async () => {
+  try { await player.seekRelative(5); render(true); }
+  catch (e) { setStatus(`Error: ${e.message}`); }
+});
+
+// --- Playback controls ---
+ui.btnPlay.addEventListener("click", async () => {
+  try { await player.toggle(); render(true); }
+  catch (e) { setStatus(`Error: ${e.message}`); }
+});
+
+ui.btnNext.addEventListener("click", async () => {
+  try { await player.next(); render(true); }
+  catch (e) { setStatus(`Error: ${e.message}`); }
+});
+
+ui.btnPrev.addEventListener("click", async () => {
+  try { await player.prev(); render(true); }
+  catch (e) { setStatus(`Error: ${e.message}`); }
+});
+
+$("btnReseed").addEventListener("click", async () => {
+  try {
+    await player.rebuildBatchFrom(player.idx, { autostart: player.isPlaying });
+    render(true);
+  } catch (e) { setStatus(`Error: ${e.message}`); }
+});
 
 // --- Batch size controls ---
 let currentBatchSize = 5;
@@ -412,9 +592,7 @@ function applyBatchSize(val) {
   document.querySelectorAll(".batch-btn").forEach(btn => {
     btn.classList.toggle("active", Number(btn.dataset.val) === val);
   });
-  if (ui.batchCustom.value !== String(val)) {
-    ui.batchCustom.value = val;
-  }
+  if (ui.batchCustom.value !== String(val)) ui.batchCustom.value = val;
 }
 
 document.querySelectorAll(".batch-btn").forEach(btn => {
@@ -446,29 +624,7 @@ ui.batchCustom.addEventListener("change", async (ev) => {
   }
 });
 
-// --- Playback controls ---
-ui.btnPlay.addEventListener("click", async () => {
-  try { await player.toggle(); render(true); }
-  catch (e) { setStatus(`Error: ${e.message}`); }
-});
-
-ui.btnNext.addEventListener("click", async () => {
-  try { await player.next(); render(true); }
-  catch (e) { setStatus(`Error: ${e.message}`); }
-});
-
-ui.btnPrev.addEventListener("click", async () => {
-  try { await player.prev(); render(true); }
-  catch (e) { setStatus(`Error: ${e.message}`); }
-});
-
-$("btnReseed").addEventListener("click", async () => {
-  try {
-    await player.rebuildBatchFrom(player.idx, { autostart: player.isPlaying });
-    render(true);
-  } catch (e) { setStatus(`Error: ${e.message}`); }
-});
-
+// --- Playlist size ---
 ui.playlistSize.addEventListener("change", (ev) => {
   const n = Math.max(1, Math.min(999, parseInt(ev.target.value, 10) || 1));
   ev.target.value = n;
@@ -507,7 +663,6 @@ document.addEventListener("visibilitychange", () => {
 
 // --- Init ---
 async function init() {
-  // Try to auto-discover songs from the /songs/ directory listing.
   const scanned = await scanSongsDir();
   if (scanned) {
     SONGS = scanned;
@@ -515,7 +670,6 @@ async function init() {
     ui.playlistSize.value = SONGS.length;
     setStatus(`Found ${SONGS.length} song(s) in /songs/.`);
   } else {
-    // Fall back to numbered files based on the playlist size input.
     const n = Math.max(1, parseInt(ui.playlistSize.value, 10) || 12);
     SONGS = buildSongs(n);
     player.songs = SONGS;
@@ -530,7 +684,6 @@ async function init() {
 
 init();
 
-// PWA service worker
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try { await navigator.serviceWorker.register("/sw.js"); } catch {}

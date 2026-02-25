@@ -150,28 +150,94 @@ body{
 
 /* Progress */
 .progress{
-  height: 5px;
+  position: relative;
+  height: 10px;
   border-radius: 999px;
   background: rgba(148,163,184,.15);
-  overflow: hidden;
   border: 1px solid rgba(148,163,184,.08);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
 }
+
+.progress:hover{ background: rgba(148,163,184,.22); }
+.progress.scrubbing{ background: rgba(148,163,184,.25); }
 
 .progress-bar{
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, var(--accent), rgba(96,165,250,.5));
+  background: linear-gradient(90deg, var(--accent), rgba(96,165,250,.55));
   border-radius: 999px;
-  transition: width 0.25s linear;
+  pointer-events: none;
 }
+
+/* hide transition while scrubbing for instant feedback */
+.progress:not(.scrubbing) .progress-bar{ transition: width 0.25s linear; }
+
+.progress-thumb{
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  transform: translate(-50%, -50%) scale(0);
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(96,165,250,.25);
+  pointer-events: none;
+  transition: transform 0.15s ease, left 0s;
+}
+.progress:hover .progress-thumb,
+.progress.scrubbing .progress-thumb{ transform: translate(-50%, -50%) scale(1); }
+.progress.scrubbing .progress-thumb{ transition: transform 0.15s ease; }
 
 .time-row{
   display: flex;
+  align-items: center;
   justify-content: space-between;
   color: var(--muted);
   font-size: 11px;
-  margin-top: -8px;
+  gap: 6px;
 }
+
+.seek-btn{
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s, color 0.1s;
+  flex: 0 0 auto;
+}
+.seek-btn:active{
+  background: rgba(96,165,250,.15);
+  color: var(--accent);
+  border-color: rgba(96,165,250,.4);
+}
+
+.batch-progress{
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.batch-label{
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.batch-sep{ opacity: 0.5; }
 
 /* Next Up */
 .next-up{
