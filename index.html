@@ -27,13 +27,18 @@
   </header>
 
   <main class="wrap">
+
+    <!-- Now Playing -->
     <section class="card nowplaying" aria-live="polite">
-      <div class="np-left">
-        <div class="np-title" id="npTitle">Not playing</div>
-        <div class="np-artist" id="npArtist">Tap Play to unlock audio</div>
-      </div>
-      <div class="np-right">
-        <div class="np-meta" id="npMeta">—</div>
+      <div class="np-top">
+        <div class="album-art" id="albumArt" aria-hidden="true">
+          <span class="art-note">♪</span>
+        </div>
+        <div class="np-info">
+          <div class="np-title" id="npTitle">Not playing</div>
+          <div class="np-artist" id="npArtist">Tap Play to start</div>
+          <div class="np-meta" id="npMeta">—</div>
+        </div>
       </div>
 
       <div class="progress" role="progressbar" aria-label="Playback progress">
@@ -43,8 +48,14 @@
         <span id="timeCur">0:00</span>
         <span id="timeTot">0:00</span>
       </div>
+
+      <div class="next-up" id="nextUp">
+        <span class="next-label">Next</span>
+        <span class="next-track" id="nextUpTrack">—</span>
+      </div>
     </section>
 
+    <!-- Controls -->
     <section class="card controls">
       <button class="btn" id="btnPrev" aria-label="Previous track">
         <span aria-hidden="true">⏮</span><span class="btn-text">Prev</span>
@@ -59,19 +70,28 @@
       </button>
     </section>
 
+    <!-- Settings -->
     <section class="card settings">
       <div class="row">
         <div>
-          <div class="label">Batch size (scheduled ahead)</div>
+          <div class="label">Playlist size</div>
+          <div class="hint">How many numbered tracks are in /songs/</div>
+        </div>
+        <input type="number" id="playlistSize" class="input-num"
+               min="1" max="999" value="12" aria-label="Playlist size" />
+      </div>
+
+      <div class="row">
+        <div>
+          <div class="label">Batch size (ahead)</div>
           <div class="hint">
-            Bigger batches play longer with screen off, but use more memory (decoded audio is big).
+            Bigger batches keep going longer with the screen off, but use more memory.
           </div>
         </div>
-
         <select id="batchSize" class="select" aria-label="Batch size">
           <option value="5">5 songs</option>
           <option value="10">10 songs</option>
-          <option value="all">All songs (⚠️ may be heavy)</option>
+          <option value="all">All (⚠️ heavy)</option>
         </select>
       </div>
 
@@ -86,14 +106,15 @@
       </div>
     </section>
 
+    <!-- Playlist -->
     <section class="card playlist">
       <div class="label">Playlist</div>
-      <div class="hint">Tap a track to jump (will rebuild the scheduled batch).</div>
+      <div class="hint">Tap a track to jump (will rebuild the batch).</div>
       <ul id="list" class="list" aria-label="Song list"></ul>
     </section>
 
     <footer class="foot">
-      Tip: Install to Home Screen for a more app-like experience on iOS.
+      Tip: Install to Home Screen for a native app feel on iOS.
     </footer>
   </main>
 

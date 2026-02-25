@@ -1,42 +1,52 @@
 // WalkPlayer — Web Audio batch scheduling for iOS lock-screen continuity
-// Assumes audio files are served from /songs on the same origin.
+// Audio files are served from /songs on the same origin, named 01.mp3, 02.mp3, …
 
-const SONGS = [
-  { title: "Night Walk", artist: "Mock Artist", file: "/songs/01.mp3" },
-  { title: "City Lights", artist: "Mock Artist", file: "/songs/02.mp3" },
-  { title: "Low Pulse", artist: "Mock Artist", file: "/songs/03.mp3" },
-  { title: "Soft Neon", artist: "Mock Artist", file: "/songs/04.mp3" },
-  { title: "Midnight Loop", artist: "Mock Artist", file: "/songs/05.mp3" },
-  { title: "Deep Focus", artist: "Mock Artist", file: "/songs/06.mp3" },
-  { title: "Long Road", artist: "Mock Artist", file: "/songs/07.mp3" },
-  { title: "Calm Steps", artist: "Mock Artist", file: "/songs/08.mp3" },
-  { title: "After Rain", artist: "Mock Artist", file: "/songs/09.mp3" },
-  { title: "Late Train", artist: "Mock Artist", file: "/songs/10.mp3" },
-  { title: "Quiet Motion", artist: "Mock Artist", file: "/songs/11.mp3" },
-  { title: "Home Stretch", artist: "Mock Artist", file: "/songs/12.mp3" },
+// Gradient pairs for the album-art placeholder; cycles per track index.
+const TRACK_GRADIENTS = [
+  ['#0f3460', '#533483'],
+  ['#1a2e4a', '#0f3460'],
+  ['#1a472a', '#2d6a4f'],
+  ['#4a1942', '#c94b4b'],
+  ['#0f2027', '#2c5364'],
+  ['#3c1053', '#ad5389'],
+  ['#0d2137', '#11998e'],
+  ['#2c003e', '#a855f7'],
 ];
+
+function buildSongs(count) {
+  return Array.from({ length: count }, (_, i) => ({
+    title: `Track ${i + 1}`,
+    artist: "—",
+    file: `/songs/${String(i + 1).padStart(2, "0")}.mp3`,
+  }));
+}
+
+let SONGS = buildSongs(12);
 
 const $ = (id) => document.getElementById(id);
 
 const ui = {
-  npTitle: $("npTitle"),
-  npArtist: $("npArtist"),
-  npMeta: $("npMeta"),
-  progressBar: $("progressBar"),
-  timeCur: $("timeCur"),
-  timeTot: $("timeTot"),
-  statusLine: $("statusLine"),
+  npTitle:      $("npTitle"),
+  npArtist:     $("npArtist"),
+  npMeta:       $("npMeta"),
+  albumArt:     $("albumArt"),
+  nextUpTrack:  $("nextUpTrack"),
+  progressBar:  $("progressBar"),
+  timeCur:      $("timeCur"),
+  timeTot:      $("timeTot"),
+  statusLine:   $("statusLine"),
 
-  btnPrev: $("btnPrev"),
-  btnPlay: $("btnPlay"),
-  btnNext: $("btnNext"),
-  playIcon: $("playIcon"),
-  playText: $("playText"),
+  btnPrev:      $("btnPrev"),
+  btnPlay:      $("btnPlay"),
+  btnNext:      $("btnNext"),
+  playIcon:     $("playIcon"),
+  playText:     $("playText"),
 
-  batchSize: $("batchSize"),
-  btnReseed: $("btnReseed"),
+  playlistSize: $("playlistSize"),
+  batchSize:    $("batchSize"),
+  btnReseed:    $("btnReseed"),
 
-  list: $("list"),
+  list:         $("list"),
 };
 
 function fmtTime(sec) {
@@ -62,12 +72,11 @@ class BatchScheduledPlayer {
     this.isPlaying = false;
     this.isLoading = false;
 
-    this.batchSize = 5; // default
+    this.batchSize = 5;
     this.scheduled = []; // [{ index, startTime, endTime, source, duration }]
-    this.batchFromIndex = 0;
 
-    // decoded buffers cache (keep it small; decoded PCM is large)
-    this.bufferCache = new Map(); // url -> AudioBuffer
+    // decoded buffer cache (decoded PCM is large; keep it bounded)
+    this.bufferCache = new Map();
     this.cacheOrder = [];
     this.maxCached = 8;
   }
@@ -92,12 +101,11 @@ class BatchScheduledPlayer {
   async play() {
     await this.ensureContext();
 
-    // iOS requires a user gesture to start audio: play() is called from button click.
+    // iOS requires a user gesture; play() is always called from a button click.
     if (this.ctx.state === "suspended") {
       await this.ctx.resume();
     }
 
-    // If nothing is scheduled, build & schedule a fresh batch starting at this.idx
     if (this.scheduled.length === 0) {
       await this.rebuildBatchFrom(this.idx, { autostart: true });
       return;
@@ -126,19 +134,21 @@ class BatchScheduledPlayer {
 
   async next() {
     this.idx = (this.idx + 1) % this.songs.length;
-    await this.rebuildBatchFrom(this.idx, { autostart: this.isPlaying || (this.ctx?.state === "running") });
+    await this.rebuildBatchFrom(this.idx, {
+      autostart: this.isPlaying || this.ctx?.state === "running",
+    });
   }
 
   async prev() {
-    // If we're > ~3s into the current track, restart it; else go to previous track.
     const cur = this.getCurrent();
-    if (cur && (this.ctx.currentTime - cur.startTime) > 3) {
+    if (cur && this.ctx.currentTime - cur.startTime > 3) {
       await this.rebuildBatchFrom(cur.index, { autostart: true });
       return;
     }
-
     this.idx = (this.idx - 1 + this.songs.length) % this.songs.length;
-    await this.rebuildBatchFrom(this.idx, { autostart: this.isPlaying || (this.ctx?.state === "running") });
+    await this.rebuildBatchFrom(this.idx, {
+      autostart: this.isPlaying || this.ctx?.state === "running",
+    });
   }
 
   stopAllScheduled() {
@@ -152,33 +162,28 @@ class BatchScheduledPlayer {
   async rebuildBatchFrom(startIndex, { autostart }) {
     await this.ensureContext();
 
-    // If paused/suspended but user requested rebuild, keep state and only resume if autostart true.
-    const shouldResume = autostart;
-
     this.isLoading = true;
-    setStatus(`Loading + decoding batch…`);
+    setStatus("Loading + decoding batch…");
 
-    // Stop anything currently scheduled
     this.stopAllScheduled();
 
-    // Build the batch indices
-    const batchCount = (this.batchSize === Infinity) ? this.songs.length : this.batchSize;
+    const batchCount = this.batchSize === Infinity
+      ? this.songs.length
+      : this.batchSize;
+
     const indices = [];
     for (let i = 0; i < Math.min(batchCount, this.songs.length); i++) {
       indices.push((startIndex + i) % this.songs.length);
     }
 
-    // Decode ALL buffers in the batch before scheduling (simpler + reliable scheduling)
-    // Note: decoded PCM is large; keep batch sizes reasonable on mobile.
+    // Decode all buffers first, then schedule sample-accurately.
     const buffers = [];
     for (const i of indices) {
-      const url = this.songs[i].file;
-      const buf = await this.loadDecodedBuffer(url);
+      const buf = await this.loadDecodedBuffer(this.songs[i].file);
       buffers.push({ index: i, buffer: buf });
     }
 
-    // Schedule them sequentially
-    const startAt = this.ctx.currentTime + 0.18; // small lead time
+    const startAt = this.ctx.currentTime + 0.18;
     let t = startAt;
 
     for (const item of buffers) {
@@ -187,31 +192,24 @@ class BatchScheduledPlayer {
       source.connect(this.gain);
 
       const duration = item.buffer.duration;
-      const startTime = t;
-      const endTime = t + duration;
-
-      // Schedule sample-accurate playback
-      source.start(startTime);
+      source.start(t);
 
       this.scheduled.push({
         index: item.index,
         source,
-        startTime,
-        endTime,
+        startTime: t,
+        endTime: t + duration,
         duration,
       });
 
-      t = endTime;
+      t += duration;
     }
 
-    this.batchFromIndex = startIndex;
     this.idx = startIndex;
-
     this.isLoading = false;
     setStatus(`Scheduled ${this.scheduled.length} track(s).`);
 
-    // Start or remain paused depending on autostart
-    if (shouldResume) {
+    if (autostart) {
       if (this.ctx.state === "suspended") await this.ctx.resume();
       this.isPlaying = true;
       this.setPlaybackState("playing");
@@ -220,22 +218,21 @@ class BatchScheduledPlayer {
       this.setPlaybackState("paused");
     }
 
-    // Update metadata for the first track in the batch
     this.updateNowPlayingMetadata(startIndex);
+
+    // Schedule wall-clock timers to update lock-screen metadata at each
+    // track boundary. May be throttled on iOS when screen is off, but still
+    // helps on wake-up and when the app is in the foreground.
+    scheduleMetadataUpdates();
   }
 
   async loadDecodedBuffer(url) {
-    if (this.bufferCache.has(url)) {
-      return this.bufferCache.get(url);
-    }
+    if (this.bufferCache.has(url)) return this.bufferCache.get(url);
 
     const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) {
-      throw new Error(`Failed to fetch ${url}: ${res.status}`);
-    }
+    if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
     const arr = await res.arrayBuffer();
 
-    // decodeAudioData signature differences across browsers
     const buf = await new Promise((resolve, reject) => {
       this.ctx.decodeAudioData(arr, resolve, reject);
     });
@@ -243,25 +240,19 @@ class BatchScheduledPlayer {
     this.bufferCache.set(url, buf);
     this.cacheOrder.push(url);
 
-    // Simple LRU-ish eviction
     while (this.cacheOrder.length > this.maxCached) {
-      const oldest = this.cacheOrder.shift();
-      this.bufferCache.delete(oldest);
+      this.bufferCache.delete(this.cacheOrder.shift());
     }
 
     return buf;
   }
 
-  // Determine which scheduled track is currently playing (when JS is awake).
   getCurrent() {
-    if (!this.ctx || this.scheduled.length === 0) return null;
+    if (!this.ctx || !this.scheduled.length) return null;
     const t = this.ctx.currentTime;
-
-    // find the active scheduled segment
     for (const seg of this.scheduled) {
       if (t >= seg.startTime && t < seg.endTime) return seg;
     }
-    // if past end, return last (useful for UI)
     return this.scheduled[this.scheduled.length - 1] ?? null;
   }
 
@@ -272,18 +263,16 @@ class BatchScheduledPlayer {
     const t = this.ctx.currentTime;
     const pos = Math.max(0, t - cur.startTime);
     const dur = cur.duration;
-    const ratio = dur > 0 ? clamp01(pos / dur) : 0;
-    return { ratio, pos, dur, index: cur.index };
+    return { ratio: dur > 0 ? clamp01(pos / dur) : 0, pos, dur, index: cur.index };
   }
 
   // --- Media Session (lock screen / Bluetooth) ---
   setupMediaSession() {
     if (!("mediaSession" in navigator)) return;
-
     try {
       navigator.mediaSession.setActionHandler("play", async () => {
         await this.play();
-        render(); // refresh UI quickly if woken up by OS
+        render();
       });
       navigator.mediaSession.setActionHandler("pause", async () => {
         await this.pause();
@@ -297,35 +286,51 @@ class BatchScheduledPlayer {
         await this.prev();
         render();
       });
-    } catch {
-      // Some Safari versions throw on unsupported actions.
-    }
+    } catch {}
   }
 
   updateNowPlayingMetadata(index) {
     if (!("mediaSession" in navigator)) return;
-
     const song = this.songs[index];
+    if (!song) return;
     try {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: song.title,
         artist: song.artist,
         album: "WalkPlayer",
-        // Optional artwork (add real files to /icons or /artwork)
         artwork: [
           { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
         ],
       });
     } catch {}
-
-    // Safari may ignore this, but it’s harmless elsewhere.
     this.setPlaybackState(this.isPlaying ? "playing" : "paused");
   }
 
   setPlaybackState(state) {
     if (!("mediaSession" in navigator)) return;
     try { navigator.mediaSession.playbackState = state; } catch {}
+  }
+}
+
+// --- Scheduled metadata timers ---
+// Best-effort: fires on wake-up even if throttled while screen is off.
+const metadataTimers = [];
+
+function scheduleMetadataUpdates() {
+  metadataTimers.forEach(id => clearTimeout(id));
+  metadataTimers.length = 0;
+
+  if (!player.ctx || !player.scheduled.length) return;
+
+  const audioNow = player.ctx.currentTime;
+  for (const seg of player.scheduled) {
+    const delayMs = (seg.startTime - audioNow) * 1000 - 50;
+    if (delayMs <= 0) continue;
+    const { index } = seg;
+    metadataTimers.push(setTimeout(() => {
+      player.updateNowPlayingMetadata(index);
+    }, delayMs));
   }
 }
 
@@ -368,34 +373,65 @@ function escapeHtml(str) {
 }
 
 function markActive(index) {
-  const items = ui.list.querySelectorAll(".item");
-  items.forEach((el) => el.classList.remove("active"));
+  ui.list.querySelectorAll(".item").forEach(el => el.classList.remove("active"));
   const active = ui.list.querySelector(`.item[data-index="${index}"]`);
-  if (active) active.classList.add("active");
+  if (active) {
+    active.classList.add("active");
+    active.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
 }
 
 function render(forceMetadata = false) {
   const cur = player.getCurrent();
   const p = player.getProgress();
 
-  // Determine which track to display
   const idx = cur ? cur.index : player.idx;
   const song = SONGS[idx];
 
-  ui.npTitle.textContent = song ? song.title : "Not playing";
-  ui.npArtist.textContent = song ? song.artist : "—";
-  ui.npMeta.textContent = song ? `Track ${idx + 1} / ${SONGS.length}` : "—";
+  // Now playing text
+  ui.npTitle.textContent  = song ? song.title  : "Not playing";
+  ui.npArtist.textContent = song ? song.artist : "Tap Play to start";
+  ui.npMeta.textContent   = song ? `Track ${idx + 1} / ${SONGS.length}` : "—";
 
+  // Album art gradient
+  const [c1, c2] = TRACK_GRADIENTS[idx % TRACK_GRADIENTS.length];
+  ui.albumArt.style.background = `linear-gradient(135deg, ${c1}, ${c2})`;
+
+  // Next up
+  const nextIdx  = (idx + 1) % SONGS.length;
+  const nextSong = SONGS[nextIdx];
+  if (nextSong && SONGS.length > 1) {
+    ui.nextUpTrack.textContent = `${nextSong.title}`;
+    if (nextSong.artist !== "—") {
+      ui.nextUpTrack.textContent += ` · ${nextSong.artist}`;
+    }
+  } else {
+    ui.nextUpTrack.textContent = "—";
+  }
+
+  // Progress
   ui.progressBar.style.width = `${Math.round(p.ratio * 100)}%`;
   ui.timeCur.textContent = fmtTime(p.pos);
   ui.timeTot.textContent = fmtTime(p.dur);
 
-  ui.playIcon.textContent = player.isPlaying && player.ctx?.state === "running" ? "⏸" : "▶️";
-  ui.playText.textContent = player.isPlaying && player.ctx?.state === "running" ? "Pause" : "Play";
+  // Buttons
+  const playing = player.isPlaying && player.ctx?.state === "running";
+  ui.playIcon.textContent = playing ? "⏸" : "▶️";
+  ui.playText.textContent = playing ? "Pause" : "Play";
 
   markActive(idx);
 
-  // Update MediaSession metadata when awake + track has changed
+  // MediaSession position state — helps lock-screen scrubber show progress.
+  if (player.ctx && player.isPlaying && p.dur > 0) {
+    try {
+      navigator.mediaSession?.setPositionState({
+        duration: p.dur,
+        playbackRate: 1,
+        position: Math.min(p.pos, p.dur),
+      });
+    } catch {}
+  }
+
   if (forceMetadata && song) player.updateNowPlayingMetadata(idx);
 }
 
@@ -405,11 +441,10 @@ function parseBatchValue(v) {
   return Number.isFinite(n) && n > 0 ? n : 5;
 }
 
-// Controls
+// --- Controls ---
 ui.btnPlay.addEventListener("click", async () => {
   try {
     await player.toggle();
-    // When starting from idle, toggle() will schedule and start.
     render(true);
   } catch (e) {
     setStatus(`Error: ${e.message}`);
@@ -438,7 +473,6 @@ ui.batchSize.addEventListener("change", async (ev) => {
   const bs = parseBatchValue(ev.target.value);
   player.setBatchSize(bs);
 
-  // If already scheduled, rebuilding ensures the new batch size takes effect immediately.
   if (player.ctx && player.scheduled.length) {
     try {
       await player.rebuildBatchFrom(player.idx, { autostart: player.isPlaying });
@@ -460,13 +494,30 @@ ui.btnReseed.addEventListener("click", async () => {
   }
 });
 
-// Keep UI fresh when visible (timers may be throttled when locked; that's OK)
-let raf = null;
+ui.playlistSize.addEventListener("change", (ev) => {
+  const n = Math.max(1, Math.min(999, parseInt(ev.target.value, 10) || 1));
+  ev.target.value = n;
+
+  SONGS = buildSongs(n);
+  player.songs = SONGS;
+  player.idx = Math.min(player.idx, SONGS.length - 1);
+
+  // Stop any in-progress batch (files may no longer exist)
+  player.stopAllScheduled();
+  player.isPlaying = false;
+  player.setPlaybackState("paused");
+
+  buildList();
+  setStatus(`Playlist set to ${n} track(s). Press Play to start.`);
+  render(true);
+});
+
+// --- Animation loop ---
+let lastRenderedTrackIndex = -1;
+
 function tick() {
   render(false);
 
-  // If we detect track changed (while awake), update metadata
-  // (This won’t reliably run while screen is locked, due to iOS throttling.)
   const cur = player.getCurrent();
   if (cur && cur.index !== lastRenderedTrackIndex) {
     lastRenderedTrackIndex = cur.index;
@@ -474,11 +525,10 @@ function tick() {
     markActive(cur.index);
   }
 
-  raf = requestAnimationFrame(tick);
+  requestAnimationFrame(tick);
 }
-let lastRenderedTrackIndex = -1;
 
-// visibility helper: when returning from lock screen, refresh metadata/UI
+// Refresh metadata / UI when returning from the lock screen or app switcher.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
     const cur = player.getCurrent();
@@ -487,20 +537,15 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-// Initial UI
+// --- Init ---
 buildList();
 player.setBatchSize(parseBatchValue(ui.batchSize.value));
 render(true);
-raf = requestAnimationFrame(tick);
+requestAnimationFrame(tick);
 
-// --- PWA service worker registration ---
+// PWA service worker
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
-    try {
-      await navigator.serviceWorker.register("/sw.js");
-      // no-op; keep UI quiet
-    } catch {
-      // ignore
-    }
+    try { await navigator.serviceWorker.register("/sw.js"); } catch {}
   });
 }
