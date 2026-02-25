@@ -7,3 +7,4 @@
   Going forward — every time you push code changes, also bump walkplayer-v2 → v3, etc. in sw.js. That's the signal to all browsers to dump their cache and get the new files.                 
                                                                                                                                                                                  # WalkPlayer
 # WalkPlayer
+# WalkPlayer
