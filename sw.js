@@ -1,7 +1,7 @@
 // Basic "app shell" service worker for PWA installability.
 // Note: Caching large audio files can be expensive; we cache only the UI assets by default.
 
-const CACHE_NAME = "walkplayer-v3";
+const CACHE_NAME = "walkplayer-v4";
 const APP_SHELL = [
   "/",
   "/index.html",
