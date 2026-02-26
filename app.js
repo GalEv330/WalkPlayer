@@ -25,6 +25,22 @@ function parseSongMeta(filename) {
 }
 
 async function scanSongsDir() {
+  // Try songs/index.json first (works on GitHub Pages and localhost)
+  try {
+    const res = await fetch('songs/index.json');
+    if (res.ok) {
+      const files = await res.json();
+      const songs = files
+        .filter(f => f.toLowerCase().endsWith('.mp3'))
+        .map(filename => {
+          const { title, artist } = parseSongMeta(filename);
+          return { title, artist, file: `songs/${encodeURIComponent(filename)}` };
+        });
+      if (songs.length) return songs;
+    }
+  } catch {}
+
+  // Fall back to HTML directory listing (Python's http.server on localhost)
   try {
     const res = await fetch('songs/');
     if (!res.ok) return null;
